@@ -1,100 +1,331 @@
 blueprint:
-  name: Controle de Estores com IKEA STYRBAR (Zigbee2MQTT)
-  description: >-
-    Controle os estores através de um controle IKEA STYRBAR via Zigbee2MQTT. Ações de
-    abrir, fechar, parar, e controlar a iluminação com cliques simples e duplos.
+  name: IKEA STYRBAR control for color bulbs (ZHA/Zigbee2MQTT)
+  description: >
+    Controle lâmpadas com o controle remoto IKEA STYRBAR de quatro botões (os quadrados), para uso com ZHA ou Zigbee2MQTT.
+
+    Esta blueprint adiciona seleção de cores e estende a funcionalidade para funcionar com ambas as integrações ZHA e Zigbee2MQTT.
+
   domain: automation
   input:
-    remote:
-      name: Controle Remoto
-      description: Controle IKEA STYRBAR a ser utilizado
+    remote_device:
+      name: (ZHA) Controle Remoto
+      description: Controle IKEA STYRBAR a ser utilizado. **Escolha se estiver usando ZHA.**
       selector:
-        entity:
-          integration: mqtt
-          domain: sensor
-    cover:
-      name: Estore
-      description: Estore a ser controlado
-      selector:
-        target:
-          entity:
-          - domain: cover
+        device:
+          integration: zha
+          manufacturer: IKEA of Sweden
+          model: Remote Control N2
+    remote_name:
+      name: (Zigbee2MQTT) Nome do Controle Remoto
+      description: O nome do controle remoto conforme configurado no Zigbee2MQTT. **Escolha se estiver usando Zigbee2MQTT.**
+      default: ''
+    base_topic:
+      name: (Zigbee2MQTT) Tópico Base MQTT
+      description: O tópico configurado no Zigbee2MQTT.
+      default: zigbee2mqtt
     light:
-      name: Entidade de Luz
-      description: Entidade para acender/apagar ao clicar uma vez nos botões
+      name: Luz(es)
+      description: A(s) luz(es) a serem controladas
       selector:
         target:
           entity:
           - domain: light
+    force_brightness:
+      name: Forçar brilho ao ligar
+      description: Força o brilho para o nível definido abaixo quando o botão "ligar" no controle remoto é pressionado e as luzes ligam.
+      default: false
+      selector:
+        boolean: {}
+    brightness:
+      name: Brilho
+      description: Brilho da(s) luz(es) ao ligar
+      default: 50
+      selector:
+        number:
+          min: 0.0
+          max: 100.0
+          mode: slider
+          step: 1.0
+          unit_of_measurement: '%'
+    hold_time:
+      name: Tempo de Manter Pressionado
+      description: Tempo entre a execução das ações de aumentar/diminuir brilho ao manter pressionado o botão correspondente.
+      default: 0.2
+      selector:
+        number:
+          min: 0.1
+          max: 2.0
+          step: 0.1
+          unit_of_measurement: segundos
+          mode: slider
+    color_set:
+      name: Lista de Cores e Temperaturas
+      description: Selecione (ou crie) um helper listando as cores para usar com os botões esquerdo e direito. Aceita nomes de cores, códigos RGB hexadecimais ou valores numéricos inteiros para temperatura em Kelvin.
+      selector:
+        entity:
+          domain: input_select
+    button_left_long:
+      name: Botão Esquerdo - Pressão Longa
+      description: Ação a ser executada ao manter pressionado o botão esquerdo.
+      default: []
+      selector:
+        action: {}
+    button_right_long:
+      name: Botão Direito - Pressão Longa
+      description: Ação a ser executada ao manter pressionado o botão direito.
+      default: []
+      selector:
+        action: {}
+
+variables:
+  force_brightness: !input force_brightness
+  color_set: !input color_set
+  z2m_base_topic: !input base_topic
+  z2m_controller: !input remote_name
+  zha_remote: !input remote_device
 
 trigger:
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote_device
   - platform: mqtt
-    topic: zigbee2mqtt/{{ remote }}/action
+    topic: "{{ z2m_base_topic }}/{{ z2m_controller }}/action"
 
 action:
+  - variables:
+      command: >
+        {% if trigger.platform == 'event' %}
+          {{ trigger.event.data.command }}
+        {% else %}
+          {{ trigger.payload }}
+        {% endif %}
+      cluster_id: >
+        {% if trigger.platform == 'event' %}
+          {{ trigger.event.data.cluster_id }}
+        {% else %}
+          None
+        {% endif %}
+      endpoint_id: >
+        {% if trigger.platform == 'event' %}
+          {{ trigger.event.data.endpoint_id }}
+        {% else %}
+          None
+        {% endif %}
+      args: >
+        {% if trigger.platform == 'event' %}
+          {{ trigger.event.data.args }}
+        {% else %}
+          None
+        {% endif %}
   - choose:
-      # Botão 1 (abrir estore)
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.payload == '1_initial_press' }}"
-        sequence:
-          - service: cover.open_cover
-            target: !input cover
+    - conditions:
+      # Botão de Cima (Ligar) - Pressão Curta
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            {{ command == 'on' and cluster_id == 6 and endpoint_id == 1 }}
+          {% else %}
+            {{ command == '1_short_release' }}
+          {% endif %}
+      sequence:
+        - choose:
+          - conditions: '{{ force_brightness }}'
+            sequence:
+              - service: light.turn_on
+                target: !input light
+                data:
+                  transition: 1
+                  brightness_pct: !input brightness
+          default:
+            - service: light.turn_on
+              target: !input light
+              data:
+                transition: 1
+    - conditions:
+      # Botão de Baixo (Desligar) - Pressão Curta
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            {{ command == 'off' and cluster_id == 6 and endpoint_id == 1 }}
+          {% else %}
+            {{ command == '2_short_release' }}
+          {% endif %}
+      sequence:
+        - service: light.turn_off
+          target: !input light
+          data:
+            transition: 1
+    - conditions:
+      # Botão de Cima - Pressão Longa
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            {{ command == 'move_with_on_off' and cluster_id == 8 and endpoint_id == 1 }}
+          {% else %}
+            {{ command == '1_long_press' }}
+          {% endif %}
+      sequence:
+        - repeat:
+            while:
+              - condition: template
+                value_template: "{{ is_state('input_boolean.up_button_held', 'on') }}"
+            sequence:
+              - service: light.turn_on
+                target: !input light
+                data:
+                  brightness_step_pct: 10
+                  transition: !input hold_time
+              - delay: !input hold_time
+    - conditions:
+      # Botão de Cima - Início da Pressão Longa
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            false
+          {% else %}
+            {{ command == '1_long_press' }}
+          {% endif %}
+      sequence:
+        - service: input_boolean.turn_on
+          entity_id: input_boolean.up_button_held
+    - conditions:
+      # Botão de Cima - Liberação da Pressão Longa
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            false
+          {% else %}
+            {{ command == '1_long_release' }}
+          {% endif %}
+      sequence:
+        - service: input_boolean.turn_off
+          entity_id: input_boolean.up_button_held
+    - conditions:
+      # Botão de Baixo - Pressão Longa
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            {{ command == 'move' and cluster_id == 8 and endpoint_id == 1 }}
+          {% else %}
+            {{ command == '2_long_press' }}
+          {% endif %}
+      sequence:
+        - repeat:
+            while:
+              - condition: template
+                value_template: "{{ is_state('input_boolean.down_button_held', 'on') }}"
+            sequence:
+              - service: light.turn_on
+                target: !input light
+                data:
+                  brightness_step_pct: -10
+                  transition: !input hold_time
+              - delay: !input hold_time
+    - conditions:
+      # Botão de Baixo - Início da Pressão Longa
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            false
+          {% else %}
+            {{ command == '2_long_press' }}
+          {% endif %}
+      sequence:
+        - service: input_boolean.turn_on
+          entity_id: input_boolean.down_button_held
+    - conditions:
+      # Botão de Baixo - Liberação da Pressão Longa
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            false
+          {% else %}
+            {{ command == '2_long_release' }}
+          {% endif %}
+      sequence:
+        - service: input_boolean.turn_off
+          entity_id: input_boolean.down_button_held
+    - conditions:
+      # Botão Esquerdo - Pressão Curta
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            {{ command == 'press' and cluster_id == 5 and endpoint_id == 1 and args == [257, 13, 0] }}
+          {% else %}
+            {{ command == '3_short_release' }}
+          {% endif %}
+      sequence:
+        - service: input_select.select_previous
+          data:
+            entity_id: !input color_set
+        - service: light.turn_on
+          target: !input light
+          data_template: >
+            {%- set inputval = states(color_set) %}
+            {%- set color_attrs = dict() %}
+            {%- if inputval|int(-1) != -1 %}
+            {%- set color_attrs = dict(color_attrs, color_temp_kelvin=inputval) %}
+            {%- elif inputval | first == '#' %}
+            {%- set color_attrs = dict(color_attrs,
+                                       rgb_color=(inputval[1:3]|int(base=16),
+                                                  inputval[3:5]|int(base=16),
+                                                  inputval[5:7]|int(base=16)) | list ) %}
+            {%- else %}
+            {%- set color_attrs = dict(color_attrs, color_name=inputval ) %}
+            {%- endif %}
+            {%- set color_attrs = dict(color_attrs, transition=1) %}
+            {{ color_attrs }}
+    - conditions:
+      # Botão Direito - Pressão Curta
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            {{ command == 'press' and cluster_id == 5 and endpoint_id == 1 and args == [256, 13, 0] }}
+          {% else %}
+            {{ command == '4_short_release' }}
+          {% endif %}
+      sequence:
+        - service: input_select.select_next
+          data:
+            entity_id: !input color_set
+        - service: light.turn_on
+          target: !input light
+          data_template: >
+            {%- set inputval = states(color_set) %}
+            {%- set color_attrs = dict() %}
+            {%- if inputval|int(-1) != -1 %}
+            {%- set color_attrs = dict(color_attrs, color_temp_kelvin=inputval) %}
+            {%- elif inputval | first == '#' %}
+            {%- set color_attrs = dict(color_attrs,
+                                       rgb_color=(inputval[1:3]|int(base=16),
+                                                  inputval[3:5]|int(base=16),
+                                                  inputval[5:7]|int(base=16)) | list ) %}
+            {%- else %}
+            {%- set color_attrs = dict(color_attrs, color_name=inputval ) %}
+            {%- endif %}
+            {%- set color_attrs = dict(color_attrs, transition=1) %}
+            {{ color_attrs }}
+    - conditions:
+      # Botão Esquerdo - Pressão Longa
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            {{ command == 'hold' and cluster_id == 5 and endpoint_id == 1 and args == [3329, 0] }}
+          {% else %}
+            {{ command == '3_long_press' }}
+          {% endif %}
+      sequence: !input button_left_long
+    - conditions:
+      # Botão Direito - Pressão Longa
+      - condition: template
+        value_template: >
+          {% if trigger.platform == 'event' %}
+            {{ command == 'hold' and cluster_id == 5 and endpoint_id == 1 and args == [3328, 0] }}
+          {% else %}
+            {{ command == '4_long_press' }}
+          {% endif %}
+      sequence: !input button_right_long
 
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.payload == '1_long_release' }}"
-        sequence:
-          - service: cover.stop_cover
-            target: !input cover
-
-      # Botão 2 (fechar estore)
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.payload == '2_initial_press' }}"
-        sequence:
-          - service: cover.close_cover
-            target: !input cover
-
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.payload == '2_long_release' }}"
-        sequence:
-          - service: cover.stop_cover
-            target: !input cover
-
-      # Botão 1 - Duplo clique (abrir completamente)
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.payload == '1_double_press' }}"
-        sequence:
-          - service: cover.set_cover_position
-            target: !input cover
-            data:
-              position: 100
-
-      # Botão 2 - Duplo clique (fechar completamente)
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.payload == '2_double_press' }}"
-        sequence:
-          - service: cover.set_cover_position
-            target: !input cover
-            data:
-              position: 0
-
-      # Botão 1 - Clique único (ligar/desligar luz)
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.payload == '1_short_release' }}"
-        sequence:
-          - service: light.toggle
-            target: !input light
-
-      # Botão 2 - Clique único (ligar/desligar luz)
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.payload == '2_short_release' }}"
-        sequence:
-          - service: light.toggle
-            target: !input light
+mode: restart
+max_exceeded: silent
