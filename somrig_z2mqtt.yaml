@@ -1,0 +1,101 @@
+blueprint:
+  name: Controle de Estores com IKEA STYRBAR (Zigbee2MQTT)
+  description: >-
+    Controle os estores através de um controle IKEA STYRBAR via Zigbee2MQTT. Ações de
+    abrir, fechar, parar, e controlar a iluminação com cliques simples e duplos.
+  domain: automation
+  input:
+    remote:
+      name: Controle Remoto
+      description: Controle IKEA STYRBAR a ser utilizado
+      selector:
+        entity:
+          integration: mqtt
+          domain: sensor
+    cover:
+      name: Estore
+      description: Estore a ser controlado
+      selector:
+        target:
+          entity:
+          - domain: cover
+    light:
+      name: Entidade de Luz
+      description: Entidade para acender/apagar ao clicar uma vez nos botões
+      selector:
+        target:
+          entity:
+          - domain: light
+
+trigger:
+  - platform: mqtt
+    topic: zigbee2mqtt/{{ remote }}/action
+
+action:
+  - choose:
+      # Botão 1 (abrir estore)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == '1_initial_press' }}"
+        sequence:
+          - service: cover.open_cover
+            target: !input cover
+
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == '1_long_release' }}"
+        sequence:
+          - service: cover.stop_cover
+            target: !input cover
+
+      # Botão 2 (fechar estore)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == '2_initial_press' }}"
+        sequence:
+          - service: cover.close_cover
+            target: !input cover
+
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == '2_long_release' }}"
+        sequence:
+          - service: cover.stop_cover
+            target: !input cover
+
+      # Botão 1 - Duplo clique (abrir completamente)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == '1_double_press' }}"
+        sequence:
+          - service: cover.set_cover_position
+            target: !input cover
+            data:
+              position: 100
+
+      # Botão 2 - Duplo clique (fechar completamente)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == '2_double_press' }}"
+        sequence:
+          - service: cover.set_cover_position
+            target: !input cover
+            data:
+              position: 0
+
+      # Botão 1 - Clique único (ligar/desligar luz)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == '1_short_release' }}"
+        sequence:
+          - service: light.toggle
+            target: !input light
+
+      # Botão 2 - Clique único (ligar/desligar luz)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == '2_short_release' }}"
+        sequence:
+          - service: light.toggle
+            target: !input light
+  - default: []
