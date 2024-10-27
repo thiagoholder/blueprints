@@ -98,4 +98,3 @@ action:
         sequence:
           - service: light.toggle
             target: !input light
-  - default: []
