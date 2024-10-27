@@ -98,11 +98,11 @@ action:
                   data:
                     transition: 1
                     brightness_pct: !input brightness
-            default:
-              - service: light.turn_on
-                target: !input light
-                data:
-                  transition: 1
+              default:
+                - service: light.turn_on
+                  target: !input light
+                  data:
+                    transition: 1
 
     - conditions:
         # Botão de Baixo (Desligar) - Pressão Curta
