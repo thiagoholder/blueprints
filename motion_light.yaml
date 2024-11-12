@@ -2,7 +2,7 @@ blueprint:
   name: Motion-activated Light or Switch
   description: Turn on a light or switch when motion is detected.
   domain: automation
-  source_url: https://github.com/thiagoholder/blueprints/motion_light.yaml
+  source_url: https://github.com/thiagoholder/blueprints/main/motion_light.yaml
   author: Home Assistant
   input:
     motion_entity:
@@ -49,13 +49,13 @@ actions:
     choose:
       - conditions:
           - condition: template
-            value_template: "{{ 'light' in states[!input light_or_switch_target.entity_id].domain }}"
+            value_template: "{{ states[trigger.entity_id].domain == 'light' }}"
         sequence:
           - service: light.turn_on
             target: !input light_or_switch_target
       - conditions:
           - condition: template
-            value_template: "{{ 'switch' in states[!input light_or_switch_target.entity_id].domain }}"
+            value_template: "{{ states[trigger.entity_id].domain == 'switch' }}"
         sequence:
           - service: switch.turn_on
             target: !input light_or_switch_target
@@ -74,13 +74,13 @@ actions:
     choose:
       - conditions:
           - condition: template
-            value_template: "{{ 'light' in states[!input light_or_switch_target.entity_id].domain }}"
+            value_template: "{{ states[trigger.entity_id].domain == 'light' }}"
         sequence:
           - service: light.turn_off
             target: !input light_or_switch_target
       - conditions:
           - condition: template
-            value_template: "{{ 'switch' in states[!input light_or_switch_target.entity_id].domain }}"
+            value_template: "{{ states[trigger.entity_id].domain == 'switch' }}"
         sequence:
           - service: switch.turn_off
             target: !input light_or_switch_target
