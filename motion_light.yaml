@@ -2,7 +2,7 @@ blueprint:
   name: Motion-activated Light or Switch
   description: Turn on a light or switch when motion is detected.
   domain: automation
-  source_url: https://github.com/thiagoholder/blueprints/main/motion_light.yaml
+  source_url: https://github.com/thiagoholder/blueprints/blob/main/motion_light.yaml
   author: Home Assistant
   input:
     motion_entity:
