@@ -14,15 +14,14 @@ blueprint:
               domain: binary_sensor
             - device_class: motion
               domain: binary_sensor
-    light_or_switch_target:
+    target_entity:
       name: Light or Switch
-      description: Choose a light or switch to turn on/off
+      description: Select a light or switch to control
       selector:
-        target:
-          entity:
-            domain:
-              - light
-              - switch
+        entity:
+          domain:
+            - light
+            - switch
     no_motion_wait:
       name: Wait time
       description: Time to leave the light or switch on after last motion is detected.
@@ -33,54 +32,50 @@ blueprint:
           max: 3600
           unit_of_measurement: seconds
 
-# If motion is detected within the delay,
-# we restart the script.
 mode: restart
 max_exceeded: silent
 
-triggers:
+trigger:
   - platform: state
     entity_id: !input motion_entity
     from: "off"
     to: "on"
 
-actions:
-  - alias: "Turn on the light or switch"
-    choose:
+variables:
+  target_entity: !input target_entity
+  is_light: "{{ 'light' in target_entity }}"
+  is_switch: "{{ 'switch' in target_entity }}"
+
+action:
+  - choose:
       - conditions:
-          - condition: template
-            value_template: "{{ states[trigger.entity_id].domain == 'light' }}"
+          - "{{ is_light }}"
         sequence:
           - service: light.turn_on
-            target: !input light_or_switch_target
+            target:
+              entity_id: "{{ target_entity }}"
       - conditions:
-          - condition: template
-            value_template: "{{ states[trigger.entity_id].domain == 'switch' }}"
+          - "{{ is_switch }}"
         sequence:
           - service: switch.turn_on
-            target: !input light_or_switch_target
-
-  - alias: "Wait until there is no motion from device"
-    wait_for_trigger:
+            target:
+              entity_id: "{{ target_entity }}"
+  - wait_for_trigger:
       - platform: state
         entity_id: !input motion_entity
         from: "on"
         to: "off"
-
-  - alias: "Wait the number of seconds that has been set"
-    delay: !input no_motion_wait
-
-  - alias: "Turn off the light or switch"
-    choose:
+  - delay: !input no_motion_wait
+  - choose:
       - conditions:
-          - condition: template
-            value_template: "{{ states[trigger.entity_id].domain == 'light' }}"
+          - "{{ is_light }}"
         sequence:
           - service: light.turn_off
-            target: !input light_or_switch_target
+            target:
+              entity_id: "{{ target_entity }}"
       - conditions:
-          - condition: template
-            value_template: "{{ states[trigger.entity_id].domain == 'switch' }}"
+          - "{{ is_switch }}"
         sequence:
           - service: switch.turn_off
-            target: !input light_or_switch_target
+            target:
+              entity_id: "{{ target_entity }}"
